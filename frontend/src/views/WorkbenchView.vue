@@ -37,6 +37,11 @@
       <button class="btn ghost" data-testid="reset" type="button" @click="resetFilters">重置条件</button>
     </form>
 
+    <BackfillPanel
+      v-if="meta.key === 'backfill_position' || meta.key === 'audit_trail'"
+      :tasks="backfillTasks"
+    />
+
     <table class="data-table">
       <thead>
         <tr>
@@ -104,11 +109,17 @@ import {
   runAction as applyAction,
 } from '@/api/backend-service'
 import type { EntryRow } from '@/data/types'
+import BackfillPanel from '@/views/BackfillPanel.vue'
 
 const props = defineProps<{ moduleKey: string }>()
 const meta = moduleMeta(props.moduleKey)
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
+const backfillTasks = computed(() =>
+  meta.key === 'backfill_position'
+    ? rows.value.map((row) => String(row['任务名称'] ?? '')).filter(Boolean)
+    : [],
+)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = meta.fields.slice(0, 3)

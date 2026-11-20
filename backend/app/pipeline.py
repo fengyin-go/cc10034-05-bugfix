@@ -98,6 +98,10 @@ class PipelineBus:
         self.audit_log: list[dict[str, Any]] = []
         # 延迟指标缓冲
         self.lag_buffer: list[dict[str, Any]] = []
+        # 回填完成明细快照 — backfill_position 产出，audit_trail 消费
+        self.backfill_completion_detail: list[dict[str, Any]] = []
+        # 审计恢复清单 — audit_trail 消费完成明细后回写，键为 (任务, 已确认批号)
+        self.backfill_recovery_checklist: dict[tuple[str, int], dict[str, Any]] = {}
         # 解析统计
         self.parse_stats: dict[str, Any] = {
             "total_parsed": 0,
@@ -114,6 +118,7 @@ class PipelineBus:
             "scd_processed": 0,
             "dedup_hits": 0,
             "backfill_rows": 0,
+            "backfill_rows_by_task": {},
         }
 
     def publish_event(self, event: ChangeEventRecord) -> dict[str, Any]:

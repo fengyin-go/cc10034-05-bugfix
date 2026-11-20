@@ -11,12 +11,14 @@
 .
 ├── frontend/                 Vue 3 + Vite + TypeScript 前端
 │   ├── src/views/WorkbenchView.vue|tsx  全部模块共享工作台
+│   ├── src/views/BackfillPanel.vue      回填批次回执 / 完成明细 / 恢复清单面板
 │   ├── src/data/modules.ts              18个业务模块配置
 │   ├── src/api/              统一请求封装
 │   └── vite.config.ts        dev server 配置（open: false）
 ├── backend/                  FastAPI（Python） 后端
 │   ├── app/routers/resource.py  通用查询/导出/登记/动作接口
 │   ├── app/services/<key>.py    每个模块独立领域逻辑
+│   ├── app/backfill_ledger.py   回填批次台账（按任务+批号去重）
 │   ├── app/services/base.py     共享服务骨架
 │   └── app/store.py          内存数据仓库与示例数据
 ├── .gitignore
@@ -68,6 +70,42 @@ npm run dev
 | 分区同步 | `partition_sync` | 同步配置 | 配置名称、源分区策略、目标分区策略 |
 | 审计轨迹 | `audit_trail` | 审计日志 | 审计时间、操作类型、目标对象 |
 | 故障切换 | `failover_group` | 切换组 | 组名、主通道、备用通道 |
+
+## 回填进度与审计恢复清单
+
+回填进度不再是全局计数器，而是按任务独立汇总已确认批次：
+
+- 批次回执按 **（任务，批号）** 去重，重复提交只记 `duplicate`，不计入有效行数；
+  行数或跨度不一致的重复回执记为 `duplicate_conflict`，仍不改动已发布进度。
+- `预估记录数` 只作为进度分母，只带预估值的回执会被拒绝
+  （`estimated_rows_not_actual`），不会写成已回填值。
+- 每条已确认回执带 Binlog 文件与起止位点；中断时保留“上次确认的日志跨度”，
+  中断后从未确认区间算出实际续做范围。
+- 中断轮与晚到回执同时出现时由 `absorb_late` 取舍：吸收则推进续做范围；
+  不吸收则回执记为 `held_for_review`，挂起待复核，已发布进度保持不变。
+- `回填完成明细数据集` 一行一个已确认批次；`审计轨迹` 消费该数据集后回写
+  `审计恢复清单`，两份清单按已确认批号严格对齐，不一致会出现在 `reconcile` 中。
+
+### 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/backfill_position/receipts` | 同一批次执行入口：单条、批量或 `groups` 整组提交 |
+| POST | `/api/backfill_position/groups` | 多选作业组整组提交 |
+| POST | `/api/backfill_position/batches` | 执行单批（任务 + 批号 + 实际行数 + 可选跨度） |
+| POST | `/api/backfill_position/interrupts` | 中断回填，记录 `absorb_late` 取舍与上次确认跨度 |
+| GET | `/api/backfill_position-progress` | 按任务进度（有效行数、确认批号、续做范围） |
+| GET | `/api/backfill_position-tasks` | 回填任务名清单 |
+| GET | `/api/backfill-position/summary` | 有效行数、悬而未决 Binlog 区间、实际续做范围 |
+| GET | `/api/backfill-position/completion-detail` | 回填完成明细数据集 |
+| GET | `/api/backfill-position/batch-log` | 回执处理日志与冲突明细 |
+| GET | `/api/audit-trail/recovery-checklist` | 审计恢复清单 + 与完成明细的对账结果 |
+
+## 测试
+
+```bash
+cd backend && python -m unittest discover -s tests -v
+```
 
 ## 约定
 
